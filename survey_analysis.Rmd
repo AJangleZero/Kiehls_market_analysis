@@ -1,0 +1,423 @@
+---
+title: "Kiehl's analiza kupaca"
+date: '23 ožujka 2019 '
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Executive summary
+
+U ovoj analizi smo uz pomoć podataka online ankete proveli segmentaciju. Koristeći K-means algoritam smo segmentirali ispitanike u 4 skupine - Rookies, Passivists, Veterans i Addicts. Svaku smo skupinu pobliže opisali te ćemo na temelju dobivenih skupina stvoriti buyer persone. Uz to, vidjeli smo tko su kupci Kiehl'sa, što vole, uz što asociraju Kiehl's i kako ocijenju kvalitetu Kiehl's proizvoda i usluga, te smo vidjeli da su spremni i žele koristiti Kiehl's online trgovinu.   
+
+
+### Uvod
+
+Za segmentiranje kupaca koristili smo podatke dobivene online anketom. Anketa je dijeljena putem društvenih mreža kroz razdoblje od tjedan dana (15.03.2018-22.03.2019), te je dostupna na sljedećoj [poveznici](https://docs.google.com/forms/d/e/1FAIpQLSdMSZEI1ZQ2nJJBB0ccQgPFOS62WdOPow7jIsy30bL4nWOQFA/viewform). Anketa se je sastojala od 54 pitanja, raspoeređenih u 5 sekcija - **socijodemografski podatci**, **osobnost i navike pojedinca**, **navike u vezi zdravlja kože**, **mišljenje o Kiehl's-u** te **navike u vezi online kupnje skincare proizvoda**. Cilj je uz pomoć dobivenih podataka segmentirati kupce na nekoliko klastera iz kojih će se potom formirati buyer persone, prema kojima će se kasnije optimizirati marketinški i komunikacijski planovi. 
+
+### Analiza podataka ankete 
+
+#### Učitavanje potrebnih paketa za analizu
+
+```{r packages, results="hide", warning=FALSE}
+required_packages <- c(
+  "caret",
+  "tidyverse",
+  "RColorBrewer",
+  "knitr",
+  "rworldmap",
+  "leaflet",
+  "plotly"
+)
+
+packages_to_install <- required_packages[!(required_packages %in% installed.packages()[,"Package"])]
+if(length(packages_to_install)) install.packages(packages_to_install)
+suppressMessages(lapply(required_packages, require, character.only = TRUE))
+```
+
+#### Učitavanje podataka ankete
+
+```{r import}
+## Import the data
+unzip("Kiehl's survey.csv.zip")
+data_raw <- read.csv("Kiehl's survey.csv", stringsAsFactors = FALSE)
+
+## Assign raw data and rename the variables
+data <- data_raw
+names(data) <- c("time.stamp", "person.gender", "person.age", "person.country", "person.residency", "person.profession",
+                 "person.education", "person.income", "person.ethnicity", "person.marital", "person.children",
+                 "behave.time.online", "behave.online.buy", "behave.phone.buy", "behave.phone.use",
+                 "behave.sociality", "behave.social.nets", "behave.sporty", "behave.environment", "behave.trendy",
+                 "behave.skincare.care", "behave.skincare.use", "behave.inform.buy", "behave.expert.recommendations", 
+                 "behave.friend.recommendations", "behave.celebrity.recommendation", "behave.where.buy",
+                 "skincare.spend", "skincare.brand", "skincare.natural", "skincare.price",
+                 "skincare.quality", "skincare.mass.premium", "skincare.social.image", "skincare.service", 
+                 "skincare.free.samples", "skincare.returns", "skincare.environment.buy", "kiehls.know", 
+                 "kiehls.use", "kiehls.satisfaction", "kiehls.service", "kiehls.recommend", "kiehls.product", 
+                 "kiehls.associate", "online.service", "online.why", "online.favorite", "online.satisfaction", 
+                 "online.frequency", "online.quantity", "online.time", "online.items", "showroom.webroom", 
+                 "use.kiehls")
+```
+
+
+#### Opis varijabli 
+
+| Varijabla | Opis |
+|-----------------------------|---------------------------------------------------------------|
+| time.stamp | Vrijeme ispunjavanja ankete |
+| person.gender | Spol ispitanika (M/F) |
+| person.age | Dob ispitanika |
+| person.country | Država ispitanika |
+| person.residency | Područje gdje živi ispitanik |
+| person.profession | Zanimanje ispitanika |
+| person.education | Postignuta razina obrazovanja ispitanika |
+| person.income | Mjesečna primanja ispitanika |
+| person.ethnicity | Rasa ispitanika |
+| person.marital | Bračno stanje ispitanika |
+| person.children | Broj djece ispitanika |
+| behvave.time.online | Vrijeme koje ispitanik provodi online (1-10) |
+| behave.online.buy | Koliko često ispitanik kupuje online (1-10) |
+| behave.phone.buy | Koliko često ispitanik kupuje preko mobilnog uređaja (1-10) |
+| behave.phone.use | Koliko ispitanik koristi mobilni uređaj i aplikacije (1-10) |
+| behave.sociality | Koliko je ispitanik društvena osoba (1-10) |
+| behave.social.nets | Koliko ispitanik koristi društvene mreže (1-10) |
+| behave.sporty | Koliko se ispitanik bavi sportom (1-10) |
+| behave.environment | Koliko ispitanik brine za zaštitu okoliša i životinja (1-10) |
+| behave.trendy | Koliko je ispitanik u trendu (1-10) |
+| behave.skincare.care | Koliko ispitanik brine za zdravlje kože (1-10) |
+| behave.skincare.use | Da li ispitanik koristi skincare proizvode |
+| behave.inform.buy | Koliko se ispitanik informira prije kupnje skincare proizvoda (1-10) |
+| behave.expert.recommendations | Koliki utjecaj na ispitanika ima preporuka stručnjaka (1-10) |
+| behave.friend.recommendations | Koliki utjecaj na ispitanika ima preporuka prijatelja (1-10) |
+| behave.celebrity.recommendation | Koliki utjecaj na ispitanika ima preporuka slavne osobe (1-10) |
+| behave.where.buy | Koliko često ispitanik kupuje skincare proizvode online (1-10) |
+| skincare.spend | Koliko ispitanik mjesečno troši na skincare proizvode |
+| skincare.brand | Koji skincare brend ispitanik koristi |
+| skincare.natural | Koliko su ispitaniku važni prirodni sastojci u proizvodu (1-10) |
+| skincare.price | Koliko je ispitaniku važna cijena skincare proizvoda (1-10) |
+| skincare.quality | Koliko je ispitaniku važna kvaliteta skincare proizvoda (1-10) |
+| skincare.mass.premium | Koliko često ispitanik kupuje premium skincare proizvode (1-10) |
+| skincare.social.image | Koliko je ispitaniku važna socijalna slika brenda (1-10) |
+| skincare.service | Koliko je ispitaniku važna kvaliteta usluge u skincare trgovini (1-10) |
+| skincare.free.samples | Koliko su ispitaniku važni besplatni uzorci prije kupnje (1-10) |
+| skincare.returns | Koliko je ispitaniku važna mogućnost vraćanja proizvoda (1-10) |
+| skincare.environment.buy | Koliko je ispitaniku važna društvena odgovornost brenda prije kupnje (1-10) |
+| kiehls.know | Koliko je ispitanik upoznat s brendom Kiehl's (1-10) |
+| kiehls.use | Da li ispitanik koristi Kiehl's |
+| kiehls.satisfaction | Koliko je ispitanik zadovoljan s Kiehl's proizvodima (1-10) |
+| kiehls.service | Koliko je ispitanik zadovoljan s Kiehl's uslugom (1-10) |
+| kiehls.recommend | Koliko ispitanik često preporuča Kiehl's (1-10) |
+| kiehls.product | Koji Kiehl's proizvod ispitanik koristi |
+| kiehls.associate | Uz što ispitanik asocira Kiehl's |
+| online.service | Koji online servis ispitanik koristi za kupnju skincare proizvoda |
+| online.why | Zašto ispitanik koristi određeni online servis za kupnju skincare proizvoda |
+| online.favorite | Što se ispitaniku posebno sviđa kod tog online servisa |
+| online.satisfaction | Koliko je ispitanik zadovoljan svojim online servisom (1-10) |
+| online.frequency | Koliko često ispitanik posjećuje online servis (1-10) |
+| online.quantity | Koliko skincare proizvoda ispitanik kupuje mjesečno (1-10) |
+| online.time | Koliko ispitanik pregledava online servis prije kupnje proizvoda (1-10) |
+| online.items | Koliko stvari zajedno u košarici kupuje ispitanik (1-10) |
+| showroom.webroom | Gdje sebe na skali showroom-webroom sebe vidi ispitanik (1-10) |
+| use.kiehls | Da li bi ispitanik koristio Kiehl's online servis (1-10) |
+
+#### Eksploracijska analiza podataka
+
+Pregledali smo podatke u vidu osnovnog sažetka te provjerili da li i koliko ima neostajućih vrijednosti u podatcima. U podatcima ima 140 ispitanika koji su pravilno ispunili anketu da nema vrijednosti koje nedostaju (ne uzimajući u obzir informacije o Kiehl's-u) te ćemo za segmentaciju koristiti samo njih.
+
+```{r EDA1, comment=""}
+summary(mutate_if(data,is.character, as.factor))
+sum(complete.cases(data))
+sum(complete.cases(data[1:40])) ## Complete cases not counting about Kiehl's data
+```
+
+Pregledali smo i osnovna obilježja kompletnog uzoraka, u vidu distribucije po spolu, dobi, primanjima te korištenju skincare proizvoda. Kao što vidimo u uzorku imamo više žena, 128 žena (77%) naspram 39 muškaraca (23%). 35 ispitanika su mlađi od 20 godina (21%), 86 u 20-tim godinama (51%), 29 u 30-tim godinama (17%), te 17 starijih od 40 godina (10%). Nešto više ispitanika ima primanja manja od 500$, dok su ostale skupine ravnomjerno raspoređene. 139 ispitanik (83%) izjavio je da koristi skincare proizvode.
+
+```{r EDA2, fig.height=7, fig.width=10}
+## Data preparation
+data1 <- data
+data1$person.income <- factor(data1$person.income, 
+                           levels=c("<$500", "$500-$799", "$800-$1000", "$1000-$1499", "$1500-$3000", ">$3000"), 
+                           ordered=TRUE)
+data1$person.age <- factor(data1$person.age, levels=c("<20", "20-29", "30-39", "40-49", "50-59", ">60"), 
+                              ordered=TRUE)
+
+## Gender plot
+g_summary1 <- ggplot(data1 %>%
+                       group_by(person.gender) %>%
+                       summarize(n=n())) +
+  geom_col(aes(x=person.gender, y=n, fill=person.gender)) +
+  labs(x="Spol", y="Broj ispitanika") +
+  theme(legend.position="none")
+
+## Age plot
+g_summary2 <- ggplot(data1 %>%
+                       group_by(person.age) %>%
+                       summarize(n=n())) +
+  geom_col(aes(x=person.age, y=n, fill=person.age)) +
+  labs(x="Godine", y="Broj ispitanika") +
+  theme(legend.position="none")
+
+## Income plot
+g_summary3 <- ggplot(data1 %>%
+                       group_by(person.income) %>%
+                       summarize(n=n())) +
+  geom_col(aes(x=person.income, y=n, fill=person.income)) +
+  labs(x="Mjesečni prihod", y="Broj ispitanika") +
+  theme(legend.position="none")
+
+## Skicare use plot
+g_summary4 <- ggplot(data1 %>%
+                       group_by(behave.skincare.use) %>%
+                       summarize(n=n())) +
+  geom_col(aes(x=behave.skincare.use, y=n, fill=behave.skincare.use)) +
+  labs(x="Korištenje skincare proizvoda", y="Broj ispitanika") +
+  theme(legend.position="none")
+
+## Plotting all 4 plots
+subplot(ggplotly(g_summary1), ggplotly(g_summary2), ggplotly(g_summary3), ggplotly(g_summary4),nrows=2,
+        titleX=TRUE, titleY=TRUE, margin=c(0.04, 0.04, 0.04, 0.18)) %>%
+  layout(annotations = list(
+    list(x = 0 , y = 1.05, text = "Distribucija ispitanika po spolu", showarrow = F, xref='paper', yref='paper'),
+    list(x = 0.77 , y = 1.05, text = "Distribucija ispitanika po dobi", showarrow = F, xref='paper', yref='paper'),
+    list(x = 0 , y = 0.48, text = "Distribucija ispitanika po mjesečnom prihodu", showarrow = F, xref='paper', yref='paper'),
+    list(x = 0.92 , y = 0.48, text = "Distribucija prema korištenju skincare proizvoda", showarrow = F, xref='paper', yref='paper'))
+  )
+```
+
+
+Pregledali smo i iz kojih područja dolaze ispitanici. Većina ispitanika (71, 43%) dolazi is SAD-a. Ostali ispitanici dolaze iz: Italije, Njemačke, UK, Australije, Nizozemske, Francuske, Rusije, Švedske, Finske, Kanade, Lihtenštajna, Malezije, Novog Zelanda, Irske, Izraela, Hong Konga, Islanda, Austrije, Estonije, Nigerije, Švicareske, Singapura, Filipina, Indije, Belgije, Norveške, Cipra, Španjolske, Portugala, Malte, Kine, JAR, Vijetnama, Irana, Mađarske, Barbadosa, Poljske, Meksika i Argentine.
+
+```{r EDA3, fig.height=7, fig.width=10, warning=FALSE, message=FALSE, comment=""}
+## cleaning countries variable
+data$person.country <- tolower(data$person.country)
+data$person.country <- trimws(data$person.country)
+data$person.country <- gsub("us", "usa", data$person.country)
+data$person.country <- gsub("usaa", "usa", data$person.country)
+data$person.country <- gsub("united states", "usa", data$person.country)
+data$person.country <- gsub("unitef states", "usa", data$person.country)
+data$person.country <- gsub("uunited states", "usa", data$person.country)
+data$person.country <- gsub("uusa", "usa", data$person.country)
+data$person.country <- gsub("u.s", "usa", data$person.country)
+data$person.country <- gsub("unites states", "usa", data$person.country)
+data$person.country <- gsub("united kingdom", "uk", data$person.country)
+data$person.country <- gsub("engladn", "uk", data$person.country)
+data$person.country <- gsub("england", "uk", data$person.country)
+data$person.country <- gsub("wales", "uk", data$person.country)
+data$person.country <- gsub("ausatralia", "australia", data$person.country)
+data$person.country <- gsub("ausatralia ", "australia", data$person.country)
+data$person.country <- gsub("rusasia", "russia", data$person.country)
+data$person.country <- gsub("polish", "poland", data$person.country)
+data$person.country <- gsub("cyprusa", "cyprus", data$person.country)
+data$person.country <- gsub("ausatria", "austria", data$person.country)
+data$person.country <- gsub("soutu africa", "south africa", data$person.country)
+
+## Leaflet preparing data
+countries <- subset(joinCountryData2Map(data,
+                                                 joinCode = "NAME",
+                                                 nameJoinColumn = "person.country", verbose = FALSE), 
+                            !is.na(person.gender))
+num_country <- data %>%
+  group_by(person.country) %>%
+  summarise(n=n()) 
+num_country <- num_country[-41,]
+num_country <- num_country[order(match(num_country$person.country, countries$person.country)), ]
+factpal <- colorFactor(brewer.pal(n = 11, name ="Spectral") , countries$person.country)
+labels <- paste0("<strong>", toupper(countries$person.country), "</strong><br/>", 
+                 format(num_country$n, digits = 0, big.mark = ".", decimal.mark = ",", scientific = FALSE),
+                 " Ispitanika") %>% lapply(htmltools::HTML)
+
+## Leaflet plot
+leaflet(countries) %>%
+  addTiles() %>%  
+  addPolygons(
+    fillColor = ~factpal(person.country),
+    stroke = FALSE,
+    label = labels,
+    labelOptions = labelOptions(
+      style = list("font-weight" = "normal", padding = "3px 8px"),
+      textsize = "15px",
+      direction = "auto")
+  ) %>%
+  setView(25,20,2)
+```
+
+#### Segmentacija uz pomoć K-means
+
+Za segmentaciju smo se odlučili koristiti K-means algoritam. Više o algoritmu možete pročitati na sljedećoj [poveznici](https://www.datascience.com/blog/k-means-clustering). Iako za određivanje broja klastera K nismo vidjeli *elbow* u grafu ovisnosti ukupnog unutar-klastera zbroja kvadrata J o broju klastera K, odlučili smo se za **4 klastera**. Razlog tome je što jedino između 4 i 5 klastera vidimo nekakav pad u zbroju kvadrata, iako nije značajan. U ovom slučaju broj klastera se može mijenjati s obzirom na zahtjeve analize. 
+
+Za vizualizaciju podataka proveli smo [PCA](http://setosa.io/ev/principal-component-analysis/) na podatcima. Na grafu smo bojama označili klastere te vidimo kako su se odvojili klasteri. Unatoč svemu, postoji nekoliko uzoraka gdje je došlo do preklapanja klastera, što je i očekivano jer nema očitog odvajanja klasera broja klastera.   
+
+```{r kmeans, fig.width=10, fig.height=7}
+## Cleaning the data
+data.pca <- data[,c(2:38)]
+data.pca <- data.pca[complete.cases(data.pca),c(-3,-5, -28, -21)]
+data.pca$person.gender <- as.integer(factor(data.pca$person.gender, 
+                                            levels=c("Male", "Female"), ordered = TRUE))
+data.pca$person.age <- as.integer(factor(data.pca$person.age, 
+                                         levels=c("<20", "20-29", "30-39", "40-49", "50-59", ">60"), ordered = TRUE))
+data.pca$person.residency <- as.integer(factor(data.pca$person.residency, 
+                                               levels=c("Rural area", "Small town", "Big city"), ordered = TRUE))
+data.pca$person.education <- as.integer(factor(data.pca$person.education, 
+                                               levels=c("No schooling completed", "Nursery school to 8th grade",
+                                                        "High school graduate", "Bachelor's degree or eqvivalent",
+                                                        "Master's degree or eqvivalent", "Doctorate degree"), ordered = TRUE))
+data.pca$person.income <- as.integer(factor(data.pca$person.income, 
+                                            levels=c("<$500", "$500-$799", "$800-$1000", "$1000-$1499", 
+                                                     "$1500-$3000", ">$3000"), ordered = TRUE))
+data.pca$person.ethnicity <- as.integer(factor(data.pca$person.ethnicity))
+data.pca$person.marital <- as.integer(factor(data.pca$person.marital))
+data.pca$person.children <- as.integer(factor(data.pca$person.children, 
+                                              levels=c("0", "1", "2", "3+"), ordered = TRUE))
+data.pca$skincare.spend <- as.integer(factor(data.pca$skincare.spend, 
+                                             levels=c("<$10", "$10-$19", "$20-$49", "$50-$99", "$100-$199", ">$200"), ordered = TRUE))
+data.pca <- data.frame(scale(data.pca))
+
+## PCA and Kmeans
+e <- NULL
+for (i in 1:30) e[i] <- kmeans(data.pca, i)$tot.withinss
+
+plot_ly(data.frame(J=e, diff=c(Inf,round(diff(e),2)), num_clusters=seq(1:30)), x = ~num_clusters,
+        y = ~J, text = ~diff) %>%
+  add_markers() %>%
+  add_text(textfont = list(family = "Arial", 
+                           size = 12, 
+                           color = "grey"), 
+           textposition = "top right") %>%
+  layout(title = "Within error vs. broj klastera",
+         xaxis = list(title = "Broj klastera K", zeroline = TRUE),
+         yaxis = list(title = "J", zeroline=TRUE), 
+         showlegend = FALSE)
+
+## Segmenting and plotting clusters
+PCA <- predict(preProcess(data.pca, method="pca"), data.pca)
+set.seed(9874)
+Kmeans <- kmeans(data.pca,4)
+ggplot(data.frame(PC1=PCA$PC1, PC2=PCA$PC2, cluster=factor(Kmeans$cluster)), aes(x=PC1, y=PC2, color=cluster)) +
+  geom_point(size=2)
+```
+
+#### Svojstva klastera
+
+Prvi klaster su mladi, većinom studenti. Njihovi prihodi su mali te nisu oženjeni i nemaju djecu. Mnogo vremena provode online i na mobitelu, ali rijetko kupuju online, iako mnogo vremena istražuju proizvode online, nakon čega ih kupuju u fizičkoj trgovini. Iako nisu previše aktivni, trude se ostati u trendu i počinju brinuti za zdravlje svoje kože. Prilikom kupnje najviše cijene mišljenja i preporuke stručnjaka i prijatelja, te su im ipak sastav i kvaliteta nešto važniji od same cijene za razliku od drugih klastera. S obzirom na financijske mogućnosti, puno im je važnija usluga koju brend pruža (npr. mogućnost vraćanja i besplatni uzorci), nego li društvena slika brenda. Podjednako se odlučuju za sve vrste proizvoda, ali zasad ipak ne koriste često Kiehl's. Ovaj klaster smo nazvali **Rookies**.
+
+Drugi klaster ima nešto više muškaraca te se radi o ljudima u srednjim 20-tima, osrednjih primanja, slobodnih i bez djece. Oni dosta svojeg vremena provode online, ali ne za kupovinu. U rijetkim prigodama kada kupuju online, kupuju više proizvoda koji su im potrebni, ali ipak preferiraju pregledati proizvod online te ga potom kupiti u fizičkoj trgovini. Oni nisu društveno aktivni, ne izlaze, ne bave se sportom, nisu u trendu, te shodno tome ne brinu previše za zdravlje kože. Oni koji koriste skincare proizvode, odlučuju se za najjeftinije, mass proizvode, te im nisu važni niti sastav i kvaliteta proizvoda, niti brend, tj. slika brenda. Ne informiraju se prije kupnje skincare proizvoda te ih ne zanimaju kvaliteta usluge i pogodnosti koje brend pruža. Shodno svemu navedenom, oni ne koriste Kiehl's i slične proizvode, niti ne planiraju. Ovaj klaster smo nazvali **Passivists**.
+
+Treći klaster predstavlja pretežno žene starije od 35 godina. One su visoko obrazovane te imaju visoka primanja. U privatnom životu nisu previše aktivne, već se radi o obiteljskim ženama, majkama, kojima je obitelj na prvom mjestu. Iako ne provode mnogo vremena online, one često kupuju online putem webstranica. Prije nego li kupe online proizvod, vole ga pregledati u fizičkoj trgovini. One brinu za svoju kožu i koriste primarno premium skincare proizvode, koje još uvijek više kupuju offline. Prije kupnje skincare proizvoda žele biti dobro informirane, te traže preporuke i mišljenja stručnjaka. Kod samog proizvoda najvažnija im je kvaliteta, dok im sastav, cijena i brend nisu previše bitni. Za izbor brenda nije im bitna slika brenda, već pogodnosti koje dobivaju u vidu besplatnih uzoraka i/ili mogućnosti vraćanja proizvoda. Za sada ova grupa ne koristi mnogo Kiehl's proizvoda. Ovaj klaster smo nazvali **Veterans**.
+
+Četvrti klaster su većinom mlade žene, u srednjim 20-tim godinama. Ova skupina živi u velikim gradovima, visoko su obrazovani te imaju nešto veća primanja. Jako su aktivni. Puno vremena provode online i na mobitelu, često kupuju online (uključujući skincare proizvode) te koriste sve dostupne servise za kupnju. Puno vremena provode u druženju s prijateljima, na društvenim mrežama i sudjelujući u raznim aktivnostima. Oni su u trendu i brinu za svoje zdravlje te često koriste skincare proizvode. Kod skincare proizvoda najvažniji su im kvaliteta i prirodni sastav te često biraju premium proizvode. Prilikom kupovine žele biti informirani te informacije, preporuke i mišljenja traže na svim dostupnim mjestima. Kako su oni društveno odgovorni, tako im je i bitno koliko je brend društveno odgovoran. Od proizvoda, oni često biraju upravo Kiehl's te se vrlo lako poistovjećuju s brendom. Ovaj klaster smo nazvali **Addicts**.
+
+
+```{r clusters, fig.width=10, fig.height=10} 
+## Cleaning the data
+data.pca1 <- data[,c(2:40,50:55)]
+data.pca1 <- data.pca1[complete.cases(data[,c(2:38)]),c(-3,-5, -8, -9, -28)]
+data.pca1$person.gender <- as.integer(factor(data.pca1$person.gender, 
+                                            levels=c("Male", "Female"), ordered = TRUE))
+data.pca1$person.age <- as.integer(factor(data.pca1$person.age, 
+                                         levels=c("<20", "20-29", "30-39", "40-49", "50-59", ">60"), ordered = TRUE))
+data.pca1$person.residency <- as.integer(factor(data.pca1$person.residency, 
+                                               levels=c("Rural area", "Small town", "Big city"), ordered = TRUE))
+data.pca1$person.education <- as.integer(factor(data.pca1$person.education, 
+                                               levels=c("No schooling completed", "Nursery school to 8th grade",
+                                                        "High school graduate", "Bachelor's degree or eqvivalent",
+                                                        "Master's degree or eqvivalent", "Doctorate degree"), ordered = TRUE))
+data.pca1$person.income <- as.integer(factor(data.pca1$person.income, 
+                                            levels=c("<$500", "$500-$799", "$800-$1000", "$1000-$1499", 
+                                                     "$1500-$3000", ">$3000"), ordered = TRUE))
+data.pca1$person.children <- as.integer(factor(data.pca1$person.children, 
+                                              levels=c("0", "1", "2", "3+"), ordered = TRUE))
+data.pca1$skincare.spend <- as.integer(factor(data.pca1$skincare.spend, 
+                                             levels=c("<$10", "$10-$19", "$20-$49", "$50-$99", "$100-$199", ">$200"), ordered = TRUE))
+data.pca1$behave.skincare.use <- as.integer(factor(data.pca1$behave.skincare.use, 
+                                             levels=c("No", "Yes"), ordered = TRUE))
+data.pca1$kiehls.use <- as.integer(factor(data.pca1$kiehls.use, 
+                                             levels=c("No", "Yes"), ordered = TRUE))
+
+
+data.pca1$cluster <- Kmeans$cluster
+
+## Plotting summary of all variables per cluster
+featurePlot(x=data.pca1[,1:40], y=as.factor(data.pca1[,41]), plot="box",
+            scales=list(x=list(relation="free"), y=list(relation="free")), par.strip.text=list(cex=0.5),
+            labels=c("Cluster", ""))
+```
+
+#### Analiza Kiehl's klijenata
+
+Sekciju pitanja o Kiehl's-u smo iskoristili kako bismo bolje dobili uvid u status brenda. Od svih 167 ispitanika, samo 24 ih koristi Kiehl's (14%). Analizirali smo koliko su ispitanici zainteresirani za Kiehl's online trgovinu, te zainteresiranost nije velika, no čak 40 ispitanika ima nekakav afinitet za nju (24%). 
+
+```{r kiehls1, fig.width=10, fig.height=5} 
+## Kiehls analysis 
+data.kiehls <- data[,c(39:45,55)]
+
+## Kiehl's users plot
+g_kiehls1 <- ggplot(data.kiehls %>%
+                      group_by(kiehls.use) %>%
+                      summarise(n=n()), aes(x=kiehls.use, y=n, fill=kiehls.use)) +
+  geom_col() +
+  labs(x="Koriste Kiehl's", y="Broj ispitanika") +
+  theme(legend.position = "none")
+
+## kiehl's online store users plot
+g_kiehls2 <- ggplot(data.kiehls %>%
+                      mutate(use.kiehls=as.factor(use.kiehls)) %>%
+                      group_by(use.kiehls) %>%
+                      summarise(n=n()), aes(x=use.kiehls, y=n, fill=use.kiehls)) +
+  geom_col() +
+  labs(x="Želja za korištenjem Kiehl's e-trgovine", y="Broj ispitanika") +
+  theme(legend.position = "none")
+
+## Plotting both plots
+subplot(ggplotly(g_kiehls1), ggplotly(g_kiehls2),
+        titleX=TRUE, titleY=TRUE, margin=c(0.04, 0.04, 0.04, 0.18)) %>%
+  layout(annotations = list(
+    list(x = 0 , y = 1.05, text = "Koliko ispitanika koristi Kiehl's", showarrow = F, xref='paper', yref='paper'),
+    list(x = 0.8 , y = 1.05, text = "Koliko ispitanika želi koristiti Kiehl's e-trgovinu", showarrow = F, xref='paper', yref='paper'))
+  )
+```
+
+Osim toga željeli smo vidjeti kakve su preferencije korisnika Kiehl's-a. Korisnici su većinom zadovoljni s Kiehl's-om. Kiehl's proizvode i uslugu najčešće ocijenjuju ocijenom 7. Sa istom učestalošću preporučuju Kiehl's prijateljima i poznanicima, što je vrlo visoko i vjerojatno temelj WOM.
+
+```{r kiehls2, fig.width=10, fig.height=7} 
+## Kiehl's users summary plot
+ggplotly(ggplot(data.kiehls [complete.cases(data.kiehls),c(3,4,5)] %>%
+         gather(variable, value), aes(x=variable, y=value)) +
+  geom_boxplot() +
+  labs(x="", y="Ocijena (1-10)"))
+```
+
+Klijenti Kiehl's najčešće asociraju uz **kvalitetu**, **premium proizvode**, **prirodne sastojke** i **KCR kao stručno osoblje**.
+
+```{r kiehls3, fig.width=10, fig.height=7} 
+## Kiehl's associations plot
+ggplotly(ggplot(data.frame(associate=unlist(strsplit(data.kiehls [complete.cases(data.kiehls),7], split = ";")))) +
+  geom_bar(aes(associate, fill=associate)) +
+  theme (legend.position = "none") +
+  labs(y="Frekvencija", x="Asocijacija"))
+```
+
+
+Od njih 24 koji koriste Kiehl's, 19 su žene, većinom u srednjim 20-tim godinama. Oni dolaze iz većih gradova te su završili fakultet ili još uvijek uspješno studiraju na istom. Oni imaju osrednja primanja te nisu oženjeni i nemaju djecu. Dosta vremena provode online i često kupuju online. Dosta su aktivni i društveni te brinu za zdravlje svoje kože. Trude se biti informirani o skincare proizvodu kojeg kupuju, te uz to traže preporuke i mišljena prije kupnje. Na skincare proizvode najčešće troše oko *$20-$49*. Kod proizvoda najvažnija im je kvaliteta, ali i usluga koju Kiehl's pruža u vidu besplatnih uzoraka i mogućnosti vraćanja proizvoda ukoliko nisu zadovoljni. Iako često kupuju online, još uvijek više vole razgledati online i kupiti u fizičkoj trgovini. **Spremni su i žele koristiti Kiehl's online trgovinu za kupnju skincare proizvoda**. 
+
+```{r kiehls4, comment=""}
+## Kiehl's users summary
+data [,c(-1, -29)] %>%
+  filter(kiehls.use=="Yes") %>%
+  mutate_if(is.character, as.factor) %>%
+  summary
+```
+
+### Zaključci
+
+* **Na temelju podataka online ankete smo proveli uspješnu segmentaciju**
+* **Odredili smo da je optimalan broj segmenata 4**
+* **Definirali smo obilježja pojedinih segmentata, kako bismo mogli opisati buyer persone**
+* **Korisnici Kiehl's-a proizvode i uslugu najčešće ocijenjuju sa 7 te često preporučuju proizvode**
+* **Kiehl's se asocira uz kvalitetu, premium proizvode, prirodne sastojke i KCR**
+* **Definirali smo Kiehl's klijenta**
+
+           
